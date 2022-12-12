@@ -32,7 +32,10 @@ from decalib.utils.tensor_cropper import transform_points
 def main(args):
     # if args.rasterizer_type != 'standard':
     #     args.render_orig = False
-    savefolder = args.savefolder
+    if args.savefolder is None:
+        savefolder = os.path.join(args.inputpath, 'results')
+    else:
+        savefolder = args.savefolder
     device = args.device
     os.makedirs(savefolder, exist_ok=True)
 
@@ -78,7 +81,7 @@ def main(args):
             if args.render_orig:
                 cv2.imwrite(os.path.join(savefolder, name + '_vis_original_size.jpg'), deca.visualize(orig_visdict))
         if args.saveImages:
-            for vis_name in ['inputs', 'rendered_images', 'albedo_images', 'shape_images', 'shape_detail_images', 'landmarks2d']:
+            for vis_name in ['inputs', 'rendered_images', 'albedo_images', 'shape_images', 'shape_detail_images', 'landmarks2d', 'landmarks3d_render']:
                 if vis_name not in visdict.keys():
                     continue
                 image = util.tensor2image(visdict[vis_name][0])
@@ -86,6 +89,11 @@ def main(args):
                 if args.render_orig:
                     image = util.tensor2image(orig_visdict[vis_name][0])
                     cv2.imwrite(os.path.join(savefolder, name, 'orig_' + name + '_' + vis_name +'.jpg'), util.tensor2image(orig_visdict[vis_name][0]))
+            for oname in ['alpha_images', 'normal_images', 'albedo', 'uv_texture', 'uv_detail_images', 'uv_gt_images', 'uv_texture_gt', 'displacement_map']:
+                if oname not in opdict.keys():
+                    continue
+                image = util.tensor2image(opdict[oname][0].expand(3,-1,-1))
+                cv2.imwrite(os.path.join(savefolder, name, name + '_' + oname +'.jpg'), util.tensor2image(opdict[oname][0].expand(3,-1,-1)))
     print(f'-- please check the results in {savefolder}')
         
 if __name__ == '__main__':
@@ -93,7 +101,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-i', '--inputpath', default='TestSamples/examples', type=str,
                         help='path to the test data, can be image folder, image path, image list, video')
-    parser.add_argument('-s', '--savefolder', default='TestSamples/examples/results', type=str,
+    parser.add_argument('-s', '--savefolder', default=None, type=str,
                         help='path to the output directory, where results(obj, txt files) will be stored.')
     parser.add_argument('--device', default='cuda', type=str,
                         help='set device, cpu for using cpu' )
