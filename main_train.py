@@ -29,10 +29,14 @@ def main(cfg):
     # start training
     # deca model
     from decalib.deca import DECA
-    from decalib.trainer import Trainer
     cfg.rasterizer_type = 'pytorch3d'
     deca = DECA(cfg)
-    trainer = Trainer(model=deca, config=cfg)
+    if not cfg.train.get('gan', False):
+        from decalib.trainer import Trainer
+        trainer = Trainer(model=deca, config=cfg, device=cfg.device+':'+cfg.device_id)
+    else:
+        from decalib.trainer_gan import Trainer as Trainer_gan
+        trainer = Trainer_gan(model=deca, config=cfg, device='{}:{}'.format(cfg.device, cfg.device_id))
 
     ## start train
     trainer.fit()

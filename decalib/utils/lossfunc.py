@@ -640,9 +640,9 @@ from ..models.frnet import resnet50, load_state_dict
 class VGGFace2Loss(nn.Module):
     def __init__(self, pretrained_model, pretrained_data='vggface2'):
         super(VGGFace2Loss, self).__init__()
-        self.reg_model = resnet50(num_classes=8631, include_top=False).eval().cuda()
+        self.reg_model = resnet50(num_classes=8631, include_top=False).eval()
         load_state_dict(self.reg_model, pretrained_model)
-        self.mean_bgr = torch.tensor([91.4953, 103.8827, 131.0912]).cuda()
+        self.mean_bgr = torch.tensor([91.4953, 103.8827, 131.0912])
 
     def reg_features(self, x):
         # out = []
@@ -657,12 +657,15 @@ class VGGFace2Loss(nn.Module):
 
     def transform(self, img):
         # import ipdb;ipdb.set_trace()
-        img = img[:, [2,1,0], :, :].permute(0,2,3,1) * 255 - self.mean_bgr
+        img = img[:, [2,1,0], :, :].permute(0,2,3,1) * 255 - self.mean_bgr.to(img.device)
         img = img.permute(0,3,1,2)
         return img
 
     def _cos_metric(self, x1, x2):
         return 1.0 - F.cosine_similarity(x1, x2, dim=1)
+    
+    def forward_features(self, x):
+        return self.reg_features(self.transform(x))
 
     def forward(self, gen, tar, is_crop=True):
         gen = self.transform(gen)

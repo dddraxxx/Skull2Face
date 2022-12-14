@@ -36,6 +36,10 @@ def main(args):
         savefolder = os.path.join(args.inputpath, 'results')
     else:
         savefolder = args.savefolder
+    if args.preclear:
+        if os.path.exists(savefolder+'_old'):
+            os.system('rm -r ' + savefolder+'_old')
+        os.system('mv ' + savefolder + ' ' + savefolder + '_old')
     device = args.device
     os.makedirs(savefolder, exist_ok=True)
 
@@ -81,7 +85,7 @@ def main(args):
             if args.render_orig:
                 cv2.imwrite(os.path.join(savefolder, name + '_vis_original_size.jpg'), deca.visualize(orig_visdict))
         if args.saveImages:
-            for vis_name in ['inputs', 'rendered_images', 'albedo_images', 'shape_images', 'shape_detail_images', 'landmarks2d', 'landmarks3d_render']:
+            for vis_name in ['inputs', 'rendered_images', 'albedo_images', 'shape_images', 'shape_detail_images', 'landmarks2d', 'landmarks3d']:
                 if vis_name not in visdict.keys():
                     continue
                 image = util.tensor2image(visdict[vis_name][0])
@@ -113,7 +117,7 @@ if __name__ == '__main__':
     parser.add_argument('--detector', default='fan', type=str,
                         help='detector for cropping face, check decalib/detectors.py for details' )
     # rendering option
-    parser.add_argument('--rasterizer_type', default='standard', type=str,
+    parser.add_argument('--rasterizer_type', default='pytorch3d', type=str,
                         help='rasterizer type: pytorch3d or standard' )
     parser.add_argument('--render_orig', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to render results in original image size, currently only works when rasterizer_type=standard')
@@ -136,4 +140,5 @@ if __name__ == '__main__':
                         help='whether to save outputs as .mat' )
     parser.add_argument('--saveImages', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save visualization output as seperate images' )
+    parser.add_argument('-p', '--preclear', action='store_true')
     main(parser.parse_args())

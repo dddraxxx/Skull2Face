@@ -9,11 +9,24 @@ from skimage.io import imread, imsave
 from skimage.transform import estimate_transform, warp, resize, rescale
 from glob import glob
 
-from .vggface import VGGFace2Dataset
+from .vggface import *
 from .ethnicity import EthnicityDataset
 from .aflw2000 import AFLW2000
 from .now import NoWDataset
 from .vox import VoxelDataset
+
+class FakeDataset(Dataset):
+    def __init__(self, len=300):
+        super(FakeDataset, self).__init__()
+        self.len = len
+    def __len__(self):
+        return self.len
+    def __getitem__(self, idx):
+        return {
+            'image': torch.rand(2, 3, 224, 224),
+            'landmark': torch.rand(2, 68, 3),
+            'mask': torch.rand(2, 1, 224, 224),
+        }
 
 def build_train(config, is_train=True):
     data_list = []
@@ -29,6 +42,8 @@ def build_train(config, is_train=True):
         data_list.append(COCODataset(image_size=config.image_size, scale=[config.scale_min, config.scale_max], trans_scale=config.trans_scale))
     if 'celebahq' in config.training_data:
         data_list.append(CelebAHQDataset(image_size=config.image_size, scale=[config.scale_min, config.scale_max], trans_scale=config.trans_scale))
+    if 'fake' in config.training_data:
+        data_list.append(FakeDataset())
     dataset = ConcatDataset(data_list)
     
     return dataset
@@ -41,6 +56,8 @@ def build_val(config, is_train=True):
         data_list.append(NoWDataset())
     if 'aflw2000' in config.eval_data:
         data_list.append(AFLW2000())
+    if 'fake' in config.eval_data:
+        data_list.append(FakeDataset(3))
     dataset = ConcatDataset(data_list)
 
     return dataset

@@ -1,6 +1,10 @@
+from loguru import logger
 import torch
 import torch.nn as nn
+
+from decalib.utils.lossfunc import VGGFace2Loss
 from .utils.config import cfg
+from .utils import util
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channel, out_channel, kernel_size=3, stride=1, padding=1, dilation=1, bias=True):
@@ -77,14 +81,57 @@ class Discriminator(nn.Module):
     def forward(self, x):
         return self.fc(x)
 
+class Generator1D(nn.Module):
+    '''
+    Input: 2 1D tensor
+    Output: 1 1D tensor
+    '''
+    def __init__(self, model_config):
+        super(Generator1D, self).__init__()
+        ldm_len, shp_len = model_config.in_channel
+        hidden_channel = model_config.hidden_channel
+        out_channel = shp_len
+        self.ldm_fc = nn.Sequential(
+            nn.Linear(ldm_len, hidden_channel[0]//2),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.shp_fc = nn.Sequential(
+            nn.Linear(shp_len, hidden_channel[0]//2),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.fc = nn.ModuleList()
+        for i in range(len(hidden_channel)):
+            if i == 0:
+                continue
+            else:
+                self.fc.append(nn.Sequential(
+                    nn.Linear(hidden_channel[i-1], hidden_channel[i]),
+                    nn.LeakyReLU(0.2, inplace=True),
+                ))
+        self.out_fc = nn.Linear(hidden_channel[-1], out_channel)
+    
+    def forward(self, ldm, shp):
+        ldm = self.ldm_fc(ldm)
+        shp = self.shp_fc(shp)
+        x = torch.cat([ldm, shp], dim=1)
+        for i in range(len(self.fc)):
+            x = self.fc[i](x)
+        x = self.out_fc(x)
+        return x
+
 class GAN1D(nn.Module):
     def __init__(self, model_config, deca = None):
         super(GAN1D, self).__init__()
-        self.generator = Generator1D(model_config)
-        self.discriminator = Discriminator(model_config)
+        self.vgg = VGGFace2Loss(pretrained_model=model_config.fr_model_path).eval()
+        # freeze vgg
+        for param in self.vgg.parameters():
+            param.requires_grad = False
+        self.generator = Generator1D(model_config.generator)
+        self.discriminator = Discriminator(model_config.discriminator)
         self.deca = deca
-        self.ldm_idx = model_config.dataset.lmk_idx
-        self.vgg = VGGFace2Loss(pretrained_model=)
+        self.ldm_idx = model_config.lmk_idx
+        self.real_img_ldm = model_config.real_img_ldm
+        self.cfg = model_config
     
     def forward(self, batches):
         # self.deca.eval()
@@ -97,28 +144,72 @@ class GAN1D(nn.Module):
         # get camera, light, pose, expression, shape, texture
         codedict_in = self.deca.encode(images, use_detail=False)
         shape_in = codedict_in['shape']
-        opdict_in = self.deca.decode(codedict_in, rendering=True, vis_lmk=False, return_vis=False, use_detail=False)
-        img_in = opdict_in['rendered_images']
-        landmarks_in = opdict_in['verts'][:, self.ldm_idx, :]
-
         # real landmarks?
         if self.real_img_ldm:
-            delta_landmarks = landmarks_in[:batch_size//2] - landmarks_in[batch_size//2:]
-            delta_landmarks = torch.cat([delta_landmarks, -delta_landmarks], dim=0)
+            # Option 1: calculate landmarks in real settings
+            if not self.cfg.normal_settings:
+                opdict_in = self.deca.decode(codedict_in, rendering=True, vis_lmk=False, return_vis=False, use_detail=False)
+                landmarks_in = opdict_in['verts'][:, self.ldm_idx, :]
+                codedict_del = {}
+                for k in codedict_in.keys():
+                    if k not in ['shape', 'tex']:
+                        codedict_del[k] = codedict_in[k]
+                    else:
+                        codedict_del[k] = codedict_in[k][list(range(batch_size//2, batch_size))+list(range(batch_size//2))]
+                opdict_del = self.deca.decode(codedict_del, only_verts=True)
+                landmarks_del = opdict_del['verts'][:, self.ldm_idx, :]
+                delta_landmarks = landmarks_in - landmarks_del
+            # Option 2: normalize settings
+            else:
+                codedict_norm = util.normalize_codedict(codedict_in.copy())
+                opdict_norm = self.deca.decode(codedict_norm, rendering=True, vis_lmk=False, return_vis=False, use_detail=False)
+                landmarks_in = opdict_norm['verts'][:, self.ldm_idx, :]
+                landmarks_del = landmarks_in[list(range(batch_size//2, batch_size))+list(range(batch_size//2))]
+                delta_landmarks = landmarks_in - landmarks_del
+                opdict_in = opdict_norm
+                codedict_in = codedict_norm
+        # not supported yet
         else: delta_landmarks = batches['landmarks']
 
+        img_in = opdict_in['rendered_images']
         # generate fake shape params
-        shape_out = self.generator(delta_landmarks, shape_in) + shape_in
-        # render fake images
-        codedict_out = codedict_in
+        shape_out = self.generator(delta_landmarks.view(batch_size,-1), \
+            shape_in) + shape_in
+        logdict = {
+            'shape_out change max': (shape_out/shape_in-1).abs().max().item(),
+            'shape_out change mean': (shape_out/shape_in-1).abs().mean().item(),
+        }
+        if self.cfg.normal_settings:
+            ## Option 1: in real settings
+            codedict_out = codedict_in
+        else: 
+            ## Option 2: in normalized settings
+            codedict_out = codedict_in
         codedict_out['shape'] = shape_out
         opdict_out = self.deca.decode(codedict_out, rendering=True, vis_lmk=False, return_vis=False, use_detail=False)
         img_out = opdict_out['rendered_images']
         landmarks_out = opdict_out['verts'][:, self.ldm_idx, :]
+        # render fake images (everything but the tex and shape are as original images)
+        # codedict_out = {}
+        # for k in codedict_in.keys():
+        #     if k not in ['shape', 'tex']:
+        #         codedict_out[k] = codedict_in[k].view(2, batch_size//2, -1)[[1,0]].flatten(0,1)
+        # codedict_out['tex'] = codedict_in['tex']
         
         # vgg features
         imgs = torch.cat([img_in, img_out], dim=0)
-        F = self.vgg.forward_features(imgs)
-        F_real, F_gen = F[:batch_size], F[batch_size:]
+        # F = self.vgg.forward_features(imgs)
+        # F_real, F_gen = F[:batch_size], F[batch_size:]
+        F_real, F_gen = self.vgg.forward_features(img_in), self.vgg.forward_features(img_out)
+        visdict = {
+            'images': imgs[:batch_size],
+            'gen_images': imgs[batch_size:],
+            'verts': opdict_in['verts'],
+            'gen_verts': opdict_out['verts'],
+            'trans_verts': opdict_in['trans_verts'],
+            'gen_trans_verts': opdict_out['trans_verts'],
+            'lmk': opdict_in['trans_verts'][:, self.ldm_idx, :],
+            'lmk_gen': opdict_out['trans_verts'][:, self.ldm_idx, :],
+        }
 
-        return F_real, F_gen, landmarks_in, landmarks_out, delta_landmarks, imgs
+        return F_real, F_gen, landmarks_in, landmarks_out, delta_landmarks, visdict, logdict

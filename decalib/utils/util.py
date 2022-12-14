@@ -624,6 +624,11 @@ def plot_verts(image, kpts, color = 'r'):
 
     for i in range(kpts.shape[0]):
         st = kpts[i, :2]
+        if kpts.shape[1]==4:
+            if kpts[i, 3] > 0.5:
+                c = (0, 255, 0)
+            else:
+                c = (0, 0, 255)
         image = cv2.circle(image,(int(st[0]), int(st[1])), 1, c, 2)  
 
     return image
@@ -702,3 +707,19 @@ def visualize_grid(visdict, savepath=None, size=224, dim=1, return_gird=True):
         cv2.imwrite(savepath, grid_image)
     if return_gird:
         return grid_image
+
+def normalize_codedict(codedict):
+    t = codedict['cam']
+    codedict['cam'] = t.new_tensor([[10.0, 0.0, 0.0]]).repeat(t.shape[0], 1)
+    codedict['pose'] = t.new_zeros(codedict['pose'].shape)
+    codedict['exp'] = t.new_zeros(codedict['exp'].shape)
+    codedict['light']= t.new_tensor([[[ 3.5237,  3.5040,  3.4894],
+         [ 0.2638,  0.2439,  0.2265],
+         [ 0.0776,  0.0813,  0.0833],
+         [-0.4833, -0.5552, -0.5953],
+         [-0.1478, -0.1476, -0.1461],
+         [-0.1409, -0.1509, -0.1604],
+         [ 0.2000,  0.2031,  0.2025],
+         [ 1.2140,  1.2144,  1.2098],
+         [ 0.1632,  0.1330,  0.1217]]]).repeat(t.shape[0], 1, 1)
+    return codedict

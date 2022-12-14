@@ -158,16 +158,25 @@ class DECA(nn.Module):
 
     # @torch.no_grad()
     def decode(self, codedict, rendering=True, iddict=None, vis_lmk=True, return_vis=True, use_detail=True,
-                render_orig=False, original_image=None, tform=None):
+                render_orig=False, original_image=None, tform=None, only_verts=False):
         images = codedict['images']
+        # codedict['cam'] = images.new_tensor([[10.0, 0.0, 0.0]])
+        # codedict['pose'].zero_()
+        # codedict['exp'].zero_()
+        # codedict['light']=images.new_tensor([[[ 3.5237,  3.5040,  3.4894],
+        #  [ 0.2638,  0.2439,  0.2265],
+        #  [ 0.0776,  0.0813,  0.0833],
+        #  [-0.4833, -0.5552, -0.5953],
+        #  [-0.1478, -0.1476, -0.1461],
+        #  [-0.1409, -0.1509, -0.1604],
+        #  [ 0.2000,  0.2031,  0.2025],
+        #  [ 1.2140,  1.2144,  1.2098],
+        #  [ 0.1632,  0.1330,  0.1217]]])
+        # # codedict['light'].zero_()
         batch_size = images.shape[0]
         
         ## decode
         verts, landmarks2d, landmarks3d = self.flame(shape_params=codedict['shape'], expression_params=codedict['exp'], pose_params=codedict['pose'])
-        if self.cfg.model.use_tex:
-            albedo = self.flametex(codedict['tex'])
-        else:
-            albedo = torch.zeros([batch_size, 3, self.uv_size, self.uv_size], device=images.device) 
         landmarks3d_world = landmarks3d.clone()
 
         ## projection
@@ -181,6 +190,13 @@ class DECA(nn.Module):
             'landmarks3d': landmarks3d,
             'landmarks3d_world': landmarks3d_world,
         }
+        if only_verts:
+            return opdict
+
+        if self.cfg.model.use_tex:
+            albedo = self.flametex(codedict['tex'])
+        else:
+            albedo = torch.zeros([batch_size, 3, self.uv_size, self.uv_size], device=images.device) 
 
         ## rendering
         if return_vis and render_orig and original_image is not None and tform is not None:
@@ -210,6 +226,7 @@ class DECA(nn.Module):
             
         if use_detail:
             uv_z = self.D_detail(torch.cat([codedict['pose'][:,3:], codedict['exp'], codedict['detail']], dim=1))
+            # uv_z[...,120:130, 120:130] = 100e-4
             if iddict is not None:
                 uv_z = self.D_detail(torch.cat([iddict['pose'][:,3:], iddict['exp'], codedict['detail']], dim=1))
             uv_detail_normals = self.displacement2normal(uv_z, verts, ops['normals'])
@@ -220,11 +237,24 @@ class DECA(nn.Module):
             opdict['normals'] = ops['normals']
             opdict['uv_detail_normals'] = uv_detail_normals
             opdict['displacement_map'] = uv_z+self.fixed_uv_dis[None,None,:,:]
+            # ops_detail = self.render(verts, trans_verts, uv_texture, h=h, w=w, background=background)
+            # opdict['uv_detail_images'] = ops_detail['images']
         
         if vis_lmk:
             landmarks3d_vis = self.visofp(ops['transformed_normals'])#/self.image_size
             landmarks3d = torch.cat([landmarks3d, landmarks3d_vis], dim=2)
             opdict['landmarks3d'] = landmarks3d
+        # ldm_idx = list(range(0,5000,100))
+        # ldm_idx = [3516, 3495, 3786, 2585, 3538, 3502, 3404, 3442, 3125, 3112, 3435, 3472, 2181, 2401, 3060, 3422, 3468, 3418, 2901]
+        # lmk = self.flame.v_template[None,ldm_idx].repeat(1,2,1)
+        # lmk[:, :len(ldm_idx),0] = -lmk[:, :len(ldm_idx),0]
+        # dist = ((lmk[0,:,None]-self.flame.v_template)**2).sum(-1)
+        # print(dist.argmin(1), dist.min(1))
+        # ldm_idx = [3665, 3727,  680, 3435, 3472, 2181]
+        # landmarks3d = trans_verts[:,ldm_idx]
+        # landmarks3d = util.batch_orth_proj(lmk, codedict['cam']); landmarks3d[:,:,1:] = -landmarks3d[:,:,1:]
+        # landmarks3d_vis = (ops['transformed_normals'][:,ldm_idx][:,:,2:]<0.1).float()
+        # landmarks3d = torch.cat([landmarks3d, landmarks3d_vis], dim=2)
 
         if return_vis:
             ## render shape
@@ -238,7 +268,8 @@ class DECA(nn.Module):
             uv_gt = F.grid_sample(images, uv_pverts.permute(0,2,3,1)[:,:,:,:2], mode='bilinear', align_corners=False)
             if self.cfg.model.use_tex:
                 ## TODO: poisson blending should give better-looking results
-                if self.cfg.model.extract_tex:
+                # if self.cfg.model.extract_tex:
+                if self.cfg.model.get('extract_tex', False):
                     uv_texture_gt = uv_gt[:,:3,:,:]*self.uv_face_eye_mask + (uv_texture[:,:3,:,:]*(1-self.uv_face_eye_mask))
                 else:
                     uv_texture_gt = uv_texture[:,:3,:,:]
@@ -246,11 +277,15 @@ class DECA(nn.Module):
                 uv_texture_gt = uv_gt[:,:3,:,:]*self.uv_face_eye_mask + (torch.ones_like(uv_gt[:,:3,:,:])*(1-self.uv_face_eye_mask)*0.7)
             
             opdict['uv_texture_gt'] = uv_texture_gt
+            # ops_gt = self.render(verts, trans_verts, uv_texture_gt, h=h, w=w, background=background)
+            # opdict['uv_gt_images'] = ops_gt['images']
             visdict = {
                 'inputs': images, 
                 'landmarks2d': util.tensor_vis_landmarks(images, landmarks2d),
                 'landmarks3d': util.tensor_vis_landmarks(images, landmarks3d),
+                # 'landmarks3d_render' : util.tensor_vis_landmarks(ops_detail['images'], landmarks3d),
                 'shape_images': shape_images,
+                # 'shape_images': ops_detail['images'],
                 'shape_detail_images': shape_detail_images
             }
             if self.cfg.model.use_tex:

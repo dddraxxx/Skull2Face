@@ -48,6 +48,16 @@ cfg.model.fr_model_path = os.path.join(cfg.deca_dir, 'data', 'resnet50_ft_weight
 cfg.model.n_detail = 128
 cfg.model.max_z = 0.01
 
+## GAN
+cfg.model.generator = CN()
+cfg.model.generator.hidden_channel = [256, 256]
+cfg.model.discriminator = CN()
+cfg.model.discriminator.in_channel = 2048
+cfg.model.lmk_idx = [3665, 3727,  680, 3435, 3472, 2181]
+cfg.model.real_img_ldm = True
+cfg.model.generator.in_channel = [3*len(cfg.model.lmk_idx), 100]
+cfg.model.normal_settings = False
+
 # ---------------------------------------------------------------------------- #
 # Options for Dataset
 # ---------------------------------------------------------------------------- #
@@ -64,11 +74,14 @@ cfg.dataset.image_size = 224
 cfg.dataset.scale_min = 1.4
 cfg.dataset.scale_max = 1.8
 cfg.dataset.trans_scale = 0.
-
+from pathlib import Path as pa
+cfg.dataset.gan_tr =  list((pa(cfg.deca_dir).parent/'data').glob('*_crop'))
+cfg.dataset.gan_val = os.path.join(cfg.deca_dir, '..', 'data/00001_crop_val')
 # ---------------------------------------------------------------------------- #
 # Options for training
 # ---------------------------------------------------------------------------- #
 cfg.train = CN()
+cfg.train.gan = False
 cfg.train.train_detail = False
 cfg.train.max_epochs = 500
 cfg.train.max_steps = 1000000
@@ -83,6 +96,10 @@ cfg.train.val_steps = 500
 cfg.train.val_vis_dir = 'val_images'
 cfg.train.eval_steps = 5000
 cfg.train.resume = True
+# cfg for gan
+cfg.train.G_lr = 1e-4
+cfg.train.D_lr = 1e-4
+cfg.train.lmk_scale = 20
 
 # ---------------------------------------------------------------------------- #
 # Options for Losses
