@@ -51,13 +51,14 @@ def main(args):
     deca_cfg.rasterizer_type = args.rasterizer_type
     deca_cfg.model.extract_tex = args.extractTex
     deca = DECA(config = deca_cfg, device=device)
+    sum_dict= {}
     # for i in range(len(testdata)):
     for i in tqdm(range(len(testdata))):
         name = testdata[i]['imagename']
         images = testdata[i]['image'].to(device)[None,...]
         with torch.no_grad():
             codedict = deca.encode(images)
-            opdict, visdict = deca.decode(codedict) #tensor
+            opdict, visdict = deca.decode(codedict, vis_norm_shape=args.norm_shape) #tensor
             if args.render_orig:
                 tform = testdata[i]['tform'][None, ...]
                 tform = torch.inverse(tform).transpose(1,2).to(device)
@@ -84,6 +85,9 @@ def main(args):
             cv2.imwrite(os.path.join(savefolder, name + '_vis.jpg'), deca.visualize(visdict))
             if args.render_orig:
                 cv2.imwrite(os.path.join(savefolder, name + '_vis_original_size.jpg'), deca.visualize(orig_visdict))
+        if args.norm_shape:
+            norm_shapes = visdict['norm_shape_images']
+            sum_dict.setdefault('norm_shape', {})[name] = norm_shapes
         if args.saveImages:
             for vis_name in ['inputs', 'rendered_images', 'albedo_images', 'shape_images', 'shape_detail_images', 'landmarks2d', 'landmarks3d']:
                 if vis_name not in visdict.keys():
@@ -98,6 +102,8 @@ def main(args):
                     continue
                 image = util.tensor2image(opdict[oname][0].expand(3,-1,-1))
                 cv2.imwrite(os.path.join(savefolder, name, name + '_' + oname +'.jpg'), util.tensor2image(opdict[oname][0].expand(3,-1,-1)))
+    if args.norm_shape:
+        cv2.imwrite(os.path.join(savefolder, f'sum_norm_shapes.jpg'), deca.visualize(sum_dict['norm_shape']))
     print(f'-- please check the results in {savefolder}')
         
 if __name__ == '__main__':
@@ -141,4 +147,7 @@ if __name__ == '__main__':
     parser.add_argument('--saveImages', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save visualization output as seperate images' )
     parser.add_argument('-p', '--preclear', action='store_true')
+    parser.add_argument('--norm_shape', default=True, type=lambda x: x.lower() in ['true', '1'],
+                        help='whether to normalize shape parameters' )          
+    
     main(parser.parse_args())

@@ -158,7 +158,7 @@ class DECA(nn.Module):
 
     # @torch.no_grad()
     def decode(self, codedict, rendering=True, iddict=None, vis_lmk=True, return_vis=True, use_detail=True,
-                render_orig=False, original_image=None, tform=None, only_verts=False):
+                render_orig=False, original_image=None, tform=None, only_verts=False, vis_norm_shape=False):
         images = codedict['images']
         # codedict['cam'] = images.new_tensor([[10.0, 0.0, 0.0]])
         # codedict['pose'].zero_()
@@ -257,6 +257,11 @@ class DECA(nn.Module):
         # landmarks3d = torch.cat([landmarks3d, landmarks3d_vis], dim=2)
 
         if return_vis:
+            if vis_norm_shape:
+                norm_code = util.normalize_codedict(codedict)
+                norm_verts,_,_ = self.flame(shape_params=norm_code['shape'], expression_params=norm_code['exp'], pose_params=norm_code['pose'])
+                norm_trans_verts = util.batch_orth_proj(norm_verts, codedict['cam']); norm_trans_verts[:,:,1:] = -norm_trans_verts[:,:,1:]
+                norm_shape_images = self.render.render_shape(norm_verts, norm_trans_verts, h=h, w=w, images=background)
             ## render shape
             shape_images, _, grid, alpha_images = self.render.render_shape(verts, trans_verts, h=h, w=w, images=background, return_grid=True)
             detail_normal_images = F.grid_sample(uv_detail_normals, grid, align_corners=False)*alpha_images
@@ -290,6 +295,8 @@ class DECA(nn.Module):
             }
             if self.cfg.model.use_tex:
                 visdict['rendered_images'] = ops['images']
+            if vis_norm_shape:
+                visdict['norm_shape_images'] = norm_shape_images
 
             return opdict, visdict
 
