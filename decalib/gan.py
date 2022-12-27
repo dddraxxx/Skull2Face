@@ -1,3 +1,4 @@
+import os
 from loguru import logger
 import torch
 import torch.nn as nn
@@ -133,6 +134,24 @@ class GAN1D(nn.Module):
         self.real_img_ldm = model_config.real_img_ldm
         self.cfg = model_config
     
+    def load_chkp(self, path):
+        model_chkp = path
+        chkp = torch.load(model_chkp)
+        cur_dict = self.model_dict()
+        print(f'trained model found. load {model_chkp}')
+        for k in chkp.keys():
+            if k in cur_dict.keys():
+                print('load module dict', k, 'from checkpoint')
+                util.copy_state_dict(cur_dict[k], chkp[k])
+    
+    def model_dict(self):
+        d =  dict(
+            generator = self.generator.state_dict(),
+            discriminator = self.discriminator.state_dict(),
+        )
+        d.update(self.deca.model_dict())
+        return d
+    
     def forward(self, batches):
         # self.deca.eval()
         # # freeze deca
@@ -178,17 +197,19 @@ class GAN1D(nn.Module):
         logdict = {
             'shape_out change max': (shape_out/shape_in-1).abs().max().item(),
             'shape_out change mean': (shape_out/shape_in-1).abs().mean().item(),
+            'landmark_init_error': delta_landmarks.norm(dim=-1).mean().item(),
         }
-        if self.cfg.normal_settings:
-            ## Option 1: in real settings
-            codedict_out = codedict_in
-        else: 
-            ## Option 2: in normalized settings
-            codedict_out = codedict_in
+        codedict_out = codedict_in.copy()
         codedict_out['shape'] = shape_out
+        # use same texture as target images
+        if self.cfg.use_target_tex:
+            codedict_out['tex'] = codedict_in['tex'][list(range(batch_size//2, batch_size))+list(range(batch_size//2))]
         opdict_out = self.deca.decode(codedict_out, rendering=True, vis_lmk=False, return_vis=False, use_detail=False)
         img_out = opdict_out['rendered_images']
         landmarks_out = opdict_out['verts'][:, self.ldm_idx, :]
+        logdict.update({
+            'landmark_dist': ((landmarks_in-landmarks_out-delta_landmarks)).norm(dim=-1).mean().item()
+        })
         # render fake images (everything but the tex and shape are as original images)
         # codedict_out = {}
         # for k in codedict_in.keys():

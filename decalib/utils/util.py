@@ -709,6 +709,8 @@ def visualize_grid(visdict, savepath=None, size=224, dim=1, return_gird=True):
         return grid_image
 
 def normalize_codedict(codedict):
+    '''Normalize the settings of key: cam, pose, exp, light
+    '''
     t = codedict['cam']
     codedict['cam'] = t.new_tensor([[10.0, 0.0, 0.0]]).repeat(t.shape[0], 1)
     codedict['pose'] = t.new_zeros(codedict['pose'].shape)

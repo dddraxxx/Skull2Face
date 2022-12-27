@@ -24,7 +24,8 @@ class Trainer:
         self.gan = GAN1D(config.model, deca).train().to(device)
         self.optimizer()
         self.load_deca_checkpoint()
-        self.global_step = 0
+        if not self.cfg.train.get('resume_steps', False):
+            self.global_step = 0
         if self.cfg.train.write_summary:
             from torch.utils.tensorboard import SummaryWriter
             self.writer = SummaryWriter(log_dir=os.path.join(self.cfg.output_dir, self.cfg.train.log_dir))
@@ -53,7 +54,7 @@ class Trainer:
         self.optG = torch.optim.Adam(self.gan.generator.parameters(), lr=self.cfg.train.G_lr, betas=(0.5, 0.999))
 
     def load_deca_checkpoint(self):
-        model_dict = self.deca.model_dict()
+        model_dict = self.gan.model_dict()
         if self.cfg.train.resume and os.path.exists(os.path.join(self.cfg.output_dir, 'model.tar')):
             checkpoint = torch.load(os.path.join(self.cfg.output_dir, 'model.tar'))
             for key in model_dict.keys():
@@ -102,7 +103,7 @@ class Trainer:
         loss_id = self.gan.vgg._cos_metric(F_real, F_gen).mean()
         loss_lmk = ((landmarks_in-landmarks_out-delta_landmarks)*self.cfg.train.lmk_scale).pow(2).mean()
         logdict.update({
-            'landmark_dist': (((landmarks_in-landmarks_out-delta_landmarks)*self.cfg.train.lmk_scale)**2).sum(-1).sqrt().mean().item()
+            'landmark_dist_scaled': (((landmarks_in-landmarks_out-delta_landmarks)*self.cfg.train.lmk_scale)**2).sum(-1).sqrt().mean().item()
         })
         loss = loss_g + loss_id + loss_lmk
         loss.backward()
@@ -171,7 +172,7 @@ class Trainer:
                     self.writer.add_image('train_images', (grid_image/255.).astype(np.float32).transpose(2,0,1), self.global_step)
 
                 if self.global_step>0 and self.global_step % self.cfg.train.checkpoint_steps == 0:
-                    model_dict = self.deca.model_dict()
+                    model_dict = self.gan.model_dict()
                     model_dict['optG'] = self.optG.state_dict()
                     model_dict['optD'] = self.optD.state_dict()
                     model_dict['global_step'] = self.global_step

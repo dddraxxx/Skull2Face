@@ -1,15 +1,20 @@
-output_dir: "/mnt/sdh/sgraph/DECA/training/gan/3"
+output_dir: "/mnt/sdh/sgraph/DECA/training/gan/4"
 device_id: "'1'"
 train:
   gan: True
   vis_steps: 25
   log_steps: 25
   checkpoint_steps: 500
-  lmk_scale: 2000
+  lmk_scale: 10000
+  resume_steps: False
 model:
   lmk_idx: [3516, 3495, 3786, 1448, 3538, 3502, 3404, 3442, 2098, 2077, 3665, 3727,680, 1092, 2012, 3649, 3722, 3637, 1798, 3516, 3495, 3786, 2585, 3538, 3502, 3404, 3442, 3125, 3112, 3435, 3472, 2181, 2401, 3060, 3422, 3468, 3418, 2901]
   generator:
     in_channel: [114, 100]
   normal_settings: True
+  use_target_tex: False
 dataset:
   batch_size: 32
+test:
+  # pairs: [[1,2],[0,2],[0,1]]
+  pairs: [[0, 2], [0, 4], [0, 6], [0, 8], [0, 10]]

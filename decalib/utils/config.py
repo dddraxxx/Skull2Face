@@ -5,7 +5,9 @@ from yacs.config import CfgNode as CN
 import argparse
 import yaml
 import os
+from functools import partial
 
+CN = partial(CN, new_allowed=True)
 cfg = CN()
 
 abs_deca_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -140,10 +142,11 @@ def update_cfg(cfg, cfg_file):
     cfg.merge_from_file(cfg_file)
     return cfg.clone()
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, help='cfg file path')
-    parser.add_argument('--mode', type=str, default = 'train', help='deca mode')
+def parse_args(parser=None, return_args=False):
+    if parser is None:
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--cfg', type=str, help='cfg file path')
+        parser.add_argument('--mode', type=str, default = 'train', help='deca mode')
 
     args = parser.parse_args()
     print(args, end='\n\n')
@@ -157,4 +160,5 @@ def parse_args():
         cfg = update_cfg(cfg, args.cfg)
         cfg.cfg_file = cfg_file
 
-    return cfg
+    if return_args: return cfg, args 
+    else: return cfg
