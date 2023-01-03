@@ -77,7 +77,7 @@ def main(args):
             np.savetxt(os.path.join(savefolder, name, name + '_kpt2d.txt'), opdict['landmarks2d'][0].cpu().numpy())
             np.savetxt(os.path.join(savefolder, name, name + '_kpt3d.txt'), opdict['landmarks3d'][0].cpu().numpy())
         if args.saveObj:
-            deca.save_obj(os.path.join(savefolder, name, name + '.obj'), opdict)
+            deca.save_obj(os.path.join(savefolder, name, name + '.obj'), opdict, save_detail=args.detail_obj)
         if args.saveMat:
             opdict = util.dict_tensor2npy(opdict)
             savemat(os.path.join(savefolder, name, name + '.mat'), opdict)
@@ -147,6 +147,7 @@ if __name__ == '__main__':
     parser.add_argument('--saveImages', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save visualization output as seperate images' )
     parser.add_argument('-p', '--preclear', action='store_true')
+    parser.add_argument('--detail_obj', default=True, type=lambda x: x.lower() in ['true', '1'],)
     parser.add_argument('--norm_shape', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to normalize shape parameters' )          
     

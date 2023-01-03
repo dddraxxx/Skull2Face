@@ -14,6 +14,7 @@
 # For commercial licensing contact, please contact ps-license@tuebingen.mpg.de
 
 from functools import reduce
+import itertools
 import os, sys
 import cv2
 import numpy as np
@@ -58,10 +59,19 @@ def main(cfg, args):
     chkp_path = os.path.join(cfg.output_dir, 'model.tar')
     gan.load_chkp(chkp_path)
     # for i in range(len(testdata)):
-    test_pairs = cfg.test.pairs
+    if cfg.test is None or cfg.test.get('pairs', None) is None:
+        # test_pairs = [(0,j) for j in range(1, len(testdata))] + [(7,9)]
+        # permute 0,1,4,7,9
+        test_pairs = list(itertools.combinations([0,1,4,7,9], 2))
+    else: test_pairs = cfg.test.pairs
     sum_dict = {}
+    all_imgs = {}
+    for i in set(reduce(lambda x,y: x+y, test_pairs)):
+        all_imgs[testdata[i]['imagename']] = testdata[i]['image'][None]
+    cv2.imwrite(os.path.join(savefolder, 'all_input.jpg'), deca.visualize(all_imgs, dim=2, title_key=True))
+    print('save all input images to ', os.path.join(savefolder, 'all_input.jpg'))
     for i,j in tqdm(test_pairs):
-        name = testdata[i]['imagename']+'_'+testdata[j]['imagename']
+        name = testdata[i]['imagename']+'__'+testdata[j]['imagename']
         image1 = testdata[i]['image'].to(device)[None,...]
         image2 = testdata[j]['image'].to(device)[None,...]
         with torch.no_grad():
@@ -71,6 +81,8 @@ def main(cfg, args):
             print(logdict)
             print('lmk init error: ', (vis['lmk']-vis['lmk'].flip(0)).norm(dim=-1).mean())
             print('lmk error: ', (vis['lmk'].flip(0)-vis['lmk_gen']).norm(dim=-1).mean())
+            vis['images'] = gan.deca.render.render_shape(vis['verts'], vis['trans_verts'])
+            vis['gen_images'] = gan.deca.render.render_shape(vis['gen_verts'], vis['gen_trans_verts'])
             lmk_imgs = util.tensor_vis_landmarks(vis['images'], vis['lmk'])
             double_lmk_imgs = util.tensor_vis_landmarks(lmk_imgs, vis['lmk'].flip(0), color='r')
             lmk_gen_imgs = util.tensor_vis_landmarks(vis['gen_images'], vis['lmk_gen'], gt_landmarks=vis['lmk'].flip(0))
@@ -83,14 +95,30 @@ def main(cfg, args):
         sum_dict.update(visdict)
         if args.saveDepth or args.saveKpt or args.saveObj or args.saveMat or args.saveImages:
             os.makedirs(os.path.join(savefolder, name), exist_ok=True)
-        # if args.saveObj:
-        #     deca.save_obj(os.path.join(savefolder, name, name + '.obj'), opdict)
+        if args.saveObj:
+            # save original mesh
+            deca.save_obj(os.path.join(savefolder, name, testdata[i]['imagename'] + '.obj'), dict(verts=vis['verts'][:1]), save_detail=False)
+            deca.save_obj(os.path.join(savefolder, name, testdata[j]['imagename'] + '.obj'), dict(verts=vis['verts'][1:2]), save_detail=False)
+            # save generated mesh
+            deca.save_obj(os.path.join(savefolder, name, testdata[i]['imagename'] + '_gen.obj'), dict(verts=vis['gen_verts'][:1]), save_detail=False)
+            deca.save_obj(os.path.join(savefolder, name, testdata[j]['imagename'] + '_gen.obj'), dict(verts=vis['gen_verts'][1:2]), save_detail=False)
         # if args.saveMat:
         #     opdict = util.dict_tensor2npy(opdict)
         #     savemat(os.path.join(savefolder, name, name + '.mat'), opdict)
         if args.saveVis:
-            cv2.imwrite(os.path.join(savefolder, name + '_vis.jpg'), deca.visualize(visdict,dim=1))
+            cv2.imwrite(os.path.join(savefolder, name, 'vis.jpg'), deca.visualize({
+                '{}'.format(testdata[i]['imagename']): testdata[i]['image'][None],
+                '{}_shape'.format(testdata[i]['imagename']): vis['images'][0][None],
+                '{}_gen_shape'.format(testdata[i]['imagename']): vis['gen_images'][0][None],
+                '{}'.format(testdata[j]['imagename']): testdata[j]['image'][None],
+                '{}_shape'.format(testdata[j]['imagename']): vis['images'][1][None],
+                '{}_gen_shape'.format(testdata[j]['imagename']): vis['gen_images'][1][None],
+            },dim=2, title_key=True))
+            # save images
     for t in set(reduce(lambda x,y:x+y, test_pairs)):
+        name = testdata[t]['imagename']
+        # make dir
+        os.makedirs(os.path.join(savefolder, name), exist_ok=True)
         to_t_lmk = {}
         to_t = {}
         for k in sum_dict:
@@ -98,20 +126,21 @@ def main(cfg, args):
                 to_t_lmk[k] = sum_dict[k] if k not in to_t_lmk else torch.cat([to_t_lmk[k], sum_dict[k]], dim=0)
             elif k.endswith('_{}'.format(t)):
                 to_t[k] = sum_dict[k] if k not in to_t else torch.cat([to_t[k], sum_dict[k]], dim=0)
-        cv2.imwrite(os.path.join(savefolder, '{}_lmk_vis.jpg'.format(testdata[t]['imagename'])), deca.visualize(to_t_lmk,dim=1))
-        cv2.imwrite(os.path.join(savefolder, '{}_vis.jpg'.format(testdata[t]['imagename'])), deca.visualize(to_t,dim=1))
+        cv2.imwrite(os.path.join(savefolder, name, '{}_lmk_vis.jpg'.format(testdata[t]['imagename'])), deca.visualize(to_t_lmk,dim=1))
+        cv2.imwrite(os.path.join(savefolder, name, '{}_vis.jpg'.format(testdata[t]['imagename'])), deca.visualize(to_t,dim=1))
         # calculate diff between gen images
         diff_dct = {}
         gen_imgs = torch.stack(list(to_t.values()), dim=0)[:,1]
-        # if gen_imgs.shape[0] == 1:
-        #     continue
+        if gen_imgs.shape[0] == 1:
+            continue
         for i in range(gen_imgs.shape[0]):
             for j in range(i+1, gen_imgs.shape[0]):
                 img1 = gen_imgs[i]
                 img2 = gen_imgs[j]
                 diff = (img1-img2).norm(dim=0)[None].repeat(3,1,1)
                 diff_dct['{}_{}'.format(i,j)] = torch.stack([img1, diff, img2], dim=0)
-        cv2.imwrite(os.path.join(savefolder, '{}_diff_vis.jpg'.format(testdata[t]['imagename'])), deca.visualize(diff_dct,dim=1))
+        
+        cv2.imwrite(os.path.join(savefolder, name, '{}_diff_vis.jpg'.format(testdata[t]['imagename'])), deca.visualize(diff_dct,dim=1))
     print(f'-- please check the results in {savefolder}')
         
 if __name__ == '__main__':

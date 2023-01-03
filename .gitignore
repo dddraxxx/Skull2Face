@@ -50,3 +50,5 @@ internal
 
 events.*
 *.jpg
+*.png
+training/*

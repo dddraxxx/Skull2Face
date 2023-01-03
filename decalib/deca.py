@@ -160,19 +160,6 @@ class DECA(nn.Module):
     def decode(self, codedict, rendering=True, iddict=None, vis_lmk=True, return_vis=True, use_detail=True,
                 render_orig=False, original_image=None, tform=None, only_verts=False, vis_norm_shape=False):
         images = codedict['images']
-        # codedict['cam'] = images.new_tensor([[10.0, 0.0, 0.0]])
-        # codedict['pose'].zero_()
-        # codedict['exp'].zero_()
-        # codedict['light']=images.new_tensor([[[ 3.5237,  3.5040,  3.4894],
-        #  [ 0.2638,  0.2439,  0.2265],
-        #  [ 0.0776,  0.0813,  0.0833],
-        #  [-0.4833, -0.5552, -0.5953],
-        #  [-0.1478, -0.1476, -0.1461],
-        #  [-0.1409, -0.1509, -0.1604],
-        #  [ 0.2000,  0.2031,  0.2025],
-        #  [ 1.2140,  1.2144,  1.2098],
-        #  [ 0.1632,  0.1330,  0.1217]]])
-        # # codedict['light'].zero_()
         batch_size = images.shape[0]
         
         ## decode
@@ -244,17 +231,6 @@ class DECA(nn.Module):
             landmarks3d_vis = self.visofp(ops['transformed_normals'])#/self.image_size
             landmarks3d = torch.cat([landmarks3d, landmarks3d_vis], dim=2)
             opdict['landmarks3d'] = landmarks3d
-        # ldm_idx = list(range(0,5000,100))
-        # ldm_idx = [3516, 3495, 3786, 2585, 3538, 3502, 3404, 3442, 3125, 3112, 3435, 3472, 2181, 2401, 3060, 3422, 3468, 3418, 2901]
-        # lmk = self.flame.v_template[None,ldm_idx].repeat(1,2,1)
-        # lmk[:, :len(ldm_idx),0] = -lmk[:, :len(ldm_idx),0]
-        # dist = ((lmk[0,:,None]-self.flame.v_template)**2).sum(-1)
-        # print(dist.argmin(1), dist.min(1))
-        # ldm_idx = [3665, 3727,  680, 3435, 3472, 2181]
-        # landmarks3d = trans_verts[:,ldm_idx]
-        # landmarks3d = util.batch_orth_proj(lmk, codedict['cam']); landmarks3d[:,:,1:] = -landmarks3d[:,:,1:]
-        # landmarks3d_vis = (ops['transformed_normals'][:,ldm_idx][:,:,2:]<0.1).float()
-        # landmarks3d = torch.cat([landmarks3d, landmarks3d_vis], dim=2)
 
         if return_vis:
             if vis_norm_shape:
@@ -303,7 +279,7 @@ class DECA(nn.Module):
         else:
             return opdict
 
-    def visualize(self, visdict, size=224, dim=2):
+    def visualize(self, visdict, size=224, dim=2, max_col=6, title_key=False):
         '''
         image range should be [0,1]
         dim: 2 for horizontal. 1 for vertical
@@ -316,13 +292,27 @@ class DECA(nn.Module):
                 new_h = size; new_w = int(w*size/h)
             elif dim == 1:
                 new_h = int(h*size/w); new_w = size
-            grids[key] = torchvision.utils.make_grid(F.interpolate(visdict[key], [new_h, new_w]).detach().cpu())
+            grids[key] = torchvision.utils.make_grid(F.interpolate(visdict[key], [new_h, new_w]).detach().cpu(), nrow=max_col)
+            # add title to the image
+            if title_key:
+                import PIL.Image as Image
+                import PIL.ImageDraw as ImageDraw
+                import PIL.ImageFont as ImageFont
+                grid = grids[key].numpy().transpose(1,2,0).copy()*255
+                # pad grid
+                grid = np.pad(grid, ((0,30),(0,0),(0,0)), 'constant', constant_values=255)
+                grid = np.minimum(np.maximum(grid, 0), 255).astype(np.uint8)
+                grid = Image.fromarray(grid)
+                draw = ImageDraw.Draw(grid)
+                font = ImageFont.truetype("Ubuntu-R.ttf", 20)
+                draw.text((0, grid.size[1]-30), key, (0,0,0), font=font, color=(0,0,0))
+                grids[key] = torchvision.transforms.ToTensor()(grid)
         grid = torch.cat(list(grids.values()), dim)
         grid_image = (grid.numpy().transpose(1,2,0).copy()*255)[:,:,[2,1,0]]
         grid_image = np.minimum(np.maximum(grid_image, 0), 255).astype(np.uint8)
         return grid_image
     
-    def save_obj(self, filename, opdict):
+    def save_obj(self, filename, opdict, save_detail=True):
         '''
         vertices: [nv, 3], tensor
         texture: [3, h, w], tensor
@@ -330,26 +320,30 @@ class DECA(nn.Module):
         i = 0
         vertices = opdict['verts'][i].cpu().numpy()
         faces = self.render.faces[0].cpu().numpy()
-        texture = util.tensor2image(opdict['uv_texture_gt'][i])
         uvcoords = self.render.raw_uvcoords[0].cpu().numpy()
         uvfaces = self.render.uvfaces[0].cpu().numpy()
         # save coarse mesh, with texture and normal map
-        normal_map = util.tensor2image(opdict['uv_detail_normals'][i]*0.5 + 0.5)
+        if save_detail:
+            normal_map = util.tensor2image(opdict['uv_detail_normals'][i]*0.5 + 0.5)
+            texture = util.tensor2image(opdict['uv_texture_gt'][i])
+        else:
+            normal_map = texture = None#util.tensor2image(torch.zeros(256, 256, 3))
         util.write_obj(filename, vertices, faces, 
                         texture=texture, 
                         uvcoords=uvcoords, 
                         uvfaces=uvfaces, 
                         normal_map=normal_map)
-        # upsample mesh, save detailed mesh
-        texture = texture[:,:,[2,1,0]]
-        normals = opdict['normals'][i].cpu().numpy()
-        displacement_map = opdict['displacement_map'][i].cpu().numpy().squeeze()
-        dense_vertices, dense_colors, dense_faces = util.upsample_mesh(vertices, normals, faces, displacement_map, texture, self.dense_template)
-        util.write_obj(filename.replace('.obj', '_detail.obj'), 
-                        dense_vertices, 
-                        dense_faces,
-                        colors = dense_colors,
-                        inverse_face_order=True)
+        if save_detail:
+            # upsample mesh, save detailed mesh
+            texture = texture[:,:,[2,1,0]]
+            normals = opdict['normals'][i].cpu().numpy()
+            displacement_map = opdict['displacement_map'][i].cpu().numpy().squeeze()
+            dense_vertices, dense_colors, dense_faces = util.upsample_mesh(vertices, normals, faces, displacement_map, texture, self.dense_template)
+            util.write_obj(filename.replace('.obj', '_detail.obj'), 
+                            dense_vertices, 
+                            dense_faces,
+                            colors = dense_colors,
+                            inverse_face_order=True)
     
     def run(self, imagepath, iscrop=True):
         ''' An api for running deca given an image path
