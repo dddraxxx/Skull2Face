@@ -100,6 +100,7 @@ class Trainer:
         optG.zero_grad(set_to_none=True)
         logits_gen = self.gan.discriminator(F_gen)
         loss_g = F.binary_cross_entropy_with_logits(logits_gen, F_gen.new_ones(logits_gen.shape))
+        # id loss enforce generated face to have similar features with initial face
         loss_id = self.gan.vgg._cos_metric(F_real, F_gen).mean()
         loss_lmk = ((landmarks_in-landmarks_out-delta_landmarks)*self.cfg.train.lmk_scale).pow(2).mean()
         logdict.update({

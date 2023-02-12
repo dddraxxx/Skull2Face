@@ -1,4 +1,4 @@
-output_dir: "/mnt/sdh/sgraph/DECA/training/gan/5"
+output_dir: "/mnt/sdh/sgraph/DECA/training/gan/4"
 device_id: "'1'"
 train:
   gan: True
@@ -16,5 +16,5 @@ model:
 dataset:
   batch_size: 32
 test:
-  # pairs: [[1,2],[0,2],[0,1]]
+  pairs: [[1,2],[0,2],[0,1]]
   # pairs: [[0, 2], [0, 4], [0, 6], [0, 8], [0, ]]
