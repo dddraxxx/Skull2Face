@@ -6,13 +6,13 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import os
 
-from tqdm import tqdm
-from .utils import util
+# from tqdm import tqdm
+from tqdm.auto import tqdm
 from loguru import logger
 
+from .utils import util
 from .gan import GAN1D
 from .dataset_gan import build_train, build_val
-
 class Trainer:
     def __init__(self, model, config=None, device='cuda'):
         deca = model.to(device)
@@ -24,7 +24,7 @@ class Trainer:
         self.gan = GAN1D(config.model, deca).train().to(device)
         self.optimizer()
         self.load_deca_checkpoint()
-        if not self.cfg.train.get('resume_steps', False):
+        if not self.cfg.train.get('resume_steps', True):
             self.global_step = 0
         if self.cfg.train.write_summary:
             from torch.utils.tensorboard import SummaryWriter
@@ -122,9 +122,10 @@ class Trainer:
 
         iters_every_epoch = int(len(self.train_dataset)/self.batch_size)
         start_epoch = self.global_step//iters_every_epoch
+        start_step = self.global_step%iters_every_epoch
         for epoch in range(start_epoch, self.cfg.train.max_epochs):
             # for step, batch in enumerate(tqdm(self.train_dataloader, desc=f"Epoch: {epoch}/{self.cfg.train.max_epochs}")):
-            for step in tqdm(range(iters_every_epoch), desc=f"Epoch[{epoch+1}/{self.cfg.train.max_epochs}]"):
+            for step in tqdm(range(iters_every_epoch), desc=f"Epoch[{epoch+1}/{self.cfg.train.max_epochs}]",):
                 if epoch*iters_every_epoch + step < self.global_step:
                     continue
                 try:
@@ -193,3 +194,4 @@ class Trainer:
                 self.global_step += 1
                 if self.global_step > self.cfg.train.max_steps:
                     break
+            start_step = 0

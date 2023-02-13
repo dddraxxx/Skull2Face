@@ -56,24 +56,48 @@ if __name__=='__main__':
     from pathlib import Path as pa
     from tqdm import tqdm
     dir = pa('/mnt/sdh/sgraph/data/00001')
-    for ddir in dir.parent.glob('0000[0-9]'):
+    # set n process to do below
+    def crop_face(img_path):
+        img = Image.open(img_path).convert("RGB")
+        img = np.array(img)
+        bbox, _ = face_detector.run(img)
+        # bbox to int
+        bbox = [int(x) for x in bbox]
+        # print(bbox)
+        img_crop = img[bbox[1]:bbox[3], bbox[0]:bbox[2], :]
+        img_crop = Image.fromarray(img_crop)
+        return img_crop
+    # for ddir in dir.parent.glob('0000[0-9]'):atase
+    for ddir in sorted(dir.parent.glob('000[1-9][0-9]')):
         tar_dir = dir.parent / '{}_crop'.format(ddir.name)
         tar_dir.mkdir(exist_ok=True)
 
-        # set n process to do below
-        def crop_face(img_path):
-            img = Image.open(img_path).convert("RGB")
-            img = np.array(img)
-            bbox, _ = face_detector.run(img)
-            # bbox to int
-            bbox = [int(x) for x in bbox]
-            # print(bbox)
-            img_crop = img[bbox[1]:bbox[3], bbox[0]:bbox[2], :]
-            img_crop = Image.fromarray(img_crop)
-            img_crop.save(tar_dir / img_path.name)
-        # train
-        for img_path in tqdm(list(ddir.glob('*[13579].png'))):
-            crop_face(img_path)
+        # for training
+        tq = tqdm(list(ddir.glob('*[13579].png')))
+        for img_path in tq:
+            # tqdm set description
+            tq.set_description(desc='Processing {}'.format(img_path))
+            if (tar_dir / img_path.name).exists():
+                # the following is use to correct afore error; you should use tar_dir/img_path.name if just want to resize
+                # img = Image.open(tar_dir/img_path).convert("RGB")
+                try:
+                    img = crop_face(img_path)
+                except:
+                    # remove tar_dir/img_path.name
+                    (tar_dir / img_path.name).unlink()
+                    tq.write('Error for this img: {}'.format(img_path))
+                    continue
+                # resize it to 224x224
+                img_resize = img.resize((224, 224))
+                img_resize.save(tar_dir / img_path.name)
+                continue
+            # because I already executed it and I just try to resize the process images, no need to crop new faces
+            continue
+            try:
+                crop_face(img_path).save(tar_dir / img_path.name)
+            except:
+                tq.write('Error for this img: {}'.format(img_path))
+                continue
         # for validation
         # for img_path in tqdm(list(ddir.glob('*[02468].png'))):
         #     crop_face(img_path)
